@@ -1,0 +1,78 @@
+<?
+
+function cua_purchased_node_menu() {
+	$items['admin/cua_node_purchases'] = array(
+		'title' => t('Node Payments'),
+		'page callback' => 'cua_purchased_node_admin',
+		'access arguments' => array('administer content'),
+		'type' => MENU_CALLBACK,
+	);	
+	return $items;
+}
+
+//todo implement
+function cua_purchased_node_admin() {
+	$form = array();
+
+	return $form;
+}
+
+function cua_purchased_node_rules_event_info() {
+	$events['cua_purchased_node_payment_received'] = array(
+		'label' => t('Purchased node payment recieved'),
+		'group' => 'CUA Purchased nodes',
+		'module' => 'cua_purchased_node',
+		'variables' => array(
+			'owner_user' => array('type' => 'user', 'label' => t('User who bought the nodes')),
+			'order' => array('type' => 'uc_order', 'label' => t('The order')),
+			'purchased_node' => array('type' => 'node', 'label' => t('The node purchased')),
+		),
+	);
+	return $events;
+}
+
+function cua_purchased_node_node_access($node, $op, $account) {
+	global $user;
+	if(is_object($node)) {
+		if($node->type == 'purchased_node') {
+			//check access
+			$is_purchased = false;
+
+			$query = db_query('SELECT * FROM cua_purchased_nodes WHERE nid = :nid AND uid = :uid', array(':nid' => $node->nid, ':uid' => $user->uid));
+
+			//lol
+			foreach($query as $result) {
+				$is_purchased = true;
+			}
+
+			if(!$is_purchased) {
+				drupal_set_message('You have not purchased this node');
+				return NODE_ACCESS_DENY;
+			}
+		}
+	}
+	return NODE_ACCESS_IGNORE;
+}
+
+function cua_purchased_node_uc_order($op, &$order, $arg2) {
+	switch($op) {
+		case 'update':
+		case 'submit':
+		if($arg2 == 'payment_received') {
+			foreach($order->products as $product) {
+				$pnode = node_load($product->nid);
+				if(!empty($pnode->field_purchasable_node['und'])) {
+					foreach($pnode->field_purchasable_node['und'] as $pnv) {
+						$nid = $pnv['value'];
+						$node = node_load($nid);
+						$user = user_load($order->uid);
+						db_query('INSERT INTO cua_purchased_nodes VALUES(:nid, :uid)', array(':nid' => $nid, ':uid' => $order->uid));
+						drupal_set_message("gave user $user->name access to $node->title");
+						rules_invoke_event('cua_purchased_node_payment_received', $user, $order, $node);
+					}
+				}
+			}
+		}
+	}
+}
+?>
